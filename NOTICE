@@ -1,1 +1,12 @@
-Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+AIA Client SDK FreeRTOS Porting
+Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+
+**********************
+THIRD PARTY COMPONENTS
+**********************
+This software includes third party software subject to the following licensing:
+- mbedTLS (external library, downloaded separately)  - Apache 2.0
+- Amazon FreeRTOS (external library, downloaded separately) - MIT
+- AIA Device SDK (external library, downloaded separately) - PML
+- Portaudio (external library, downloaded separately) - MIT
+- Opus (external library, downloaded separately) - BSD

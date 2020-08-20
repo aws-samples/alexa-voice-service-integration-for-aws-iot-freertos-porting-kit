@@ -1,0 +1,125 @@
+diff --git a/AiaCore/include/aiaspeakermanager/aia_speaker_manager.h b/AiaCore/include/aiaspeakermanager/aia_speaker_manager.h
+index bfdc13c..d5ffd7a 100644
+--- a/AiaCore/include/aiaspeakermanager/aia_speaker_manager.h
++++ b/AiaCore/include/aiaspeakermanager/aia_speaker_manager.h
+@@ -25,7 +25,7 @@
+ 
+ /* TODO: ADSER-1867 Calculate this internally at runtime based on Opus frame
+  * size and configured capabilities. */
+-#define AIA_SPEAKER_FRAME_PUSH_CADENCE_MS 20
++#define AIA_SPEAKER_FRAME_PUSH_CADENCE_MS AIA_CLOCK_ARM_MS_MIN
+ 
+ /**
+  * This type is used to manage the speaker data flowing through the system. It
+diff --git a/AiaCore/source/aiacore/aia_mbedtls_threading.c b/AiaCore/source/aiacore/aia_mbedtls_threading.c
+index c1d2b96..2678824 100644
+--- a/AiaCore/source/aiacore/aia_mbedtls_threading.c
++++ b/AiaCore/source/aiacore/aia_mbedtls_threading.c
+@@ -28,20 +28,24 @@
+ /**
+  * Initializes a new mutex. Used by mbed TLS to provide thread-safety.
+  *
+- * Sets the valid member of `mbedtls_threading_mutex_t`.
++ * Sets the is_valid member of `mbedtls_threading_mutex_t`.
+  *
+  * @param[in] mbedtlsMutex The mutex to initialize.
+  */
+ static void _AiaMbedtlsThreading_MutexInit(
+     mbedtls_threading_mutex_t* mbedtlsMutex )
+ {
+-    mbedtlsMutex->mutex = AiaCalloc( sizeof( AiaMutex_t ), 1 );
+-    if( !mbedtlsMutex->mutex )
++    mbedtlsMutex->mutex = xSemaphoreCreateMutex();
++
++    if( mbedtlsMutex->mutex != NULL )
+     {
+-        AiaLogError( "Failed to allocate %zu bytes.", sizeof( AiaMutex_t ) );
+-        mbedtlsMutex->valid = false;
++        mbedtlsMutex->is_valid = 1;
++    }
++    else
++    {
++        mbedtlsMutex->is_valid = 0;
++        AiaLogError( "Failed to initialize mbedTLS mutex." );
+     }
+-    mbedtlsMutex->valid = AiaMutex( Create )( mbedtlsMutex->mutex, false );
+ }
+ 
+ /**
+@@ -52,11 +56,10 @@ static void _AiaMbedtlsThreading_MutexInit(
+ static void _AiaMbedtlsThreading_MutexFree(
+     mbedtls_threading_mutex_t* mbedtlsMutex )
+ {
+-    if( mbedtlsMutex->valid == true )
++    if( mbedtlsMutex->is_valid == 1 )
+     {
+-        AiaMutex( Destroy )( mbedtlsMutex->mutex );
+-        AiaFree( mbedtlsMutex->mutex );
+-        mbedtlsMutex->valid = false;
++        vSemaphoreDelete( mbedtlsMutex->mutex );
++        mbedtlsMutex->is_valid = 0;
+     }
+ }
+ 
+@@ -71,18 +74,22 @@ static void _AiaMbedtlsThreading_MutexFree(
+ static int _AiaMbedtlsThreading_MutexLock(
+     mbedtls_threading_mutex_t* mbedtlsMutex )
+ {
+-    int status = 0;
++    int ret = MBEDTLS_ERR_THREADING_BAD_INPUT_DATA;
+ 
+-    if( mbedtlsMutex->valid == false )
+-    {
+-        status = MBEDTLS_ERR_THREADING_BAD_INPUT_DATA;
+-    }
+-    else
++    if( mbedtlsMutex->is_valid == 1 )
+     {
+-        AiaMutex( Lock )( mbedtlsMutex->mutex );
++        if( xSemaphoreTake( mbedtlsMutex->mutex, portMAX_DELAY ) )
++        {
++            ret = 0;
++        }
++        else
++        {
++            ret = MBEDTLS_ERR_THREADING_MUTEX_ERROR;
++            AiaLogError( "Failed to obtain mbedTLS mutex." );
++        }
+     }
+ 
+-    return status;
++    return ret;
+ }
+ 
+ /**
+@@ -96,18 +103,22 @@ static int _AiaMbedtlsThreading_MutexLock(
+ static int _AiaMbedtlsThreading_MutexUnlock(
+     mbedtls_threading_mutex_t* mbedtlsMutex )
+ {
+-    int status = 0;
++    int ret = MBEDTLS_ERR_THREADING_BAD_INPUT_DATA;
+ 
+-    if( mbedtlsMutex->valid == false )
+-    {
+-        status = MBEDTLS_ERR_THREADING_BAD_INPUT_DATA;
+-    }
+-    else
++    if( mbedtlsMutex->is_valid == 1 )
+     {
+-        AiaMutex( Unlock )( mbedtlsMutex->mutex );
++        if( xSemaphoreGive( mbedtlsMutex->mutex ) )
++        {
++            ret = 0;
++        }
++        else
++        {
++            ret = MBEDTLS_ERR_THREADING_MUTEX_ERROR;
++            AiaLogError( "Failed to unlock mbedTLS mutex." );
++        }
+     }
+ 
+-    return status;
++    return ret;
+ }
+ 
+ void AiaMbedtlsThreading_Init()
