@@ -1,13 +1,17 @@
 /*
- * Copyright 2019-2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
- * You may not use this file except in compliance with the terms and conditions
- * set forth in the accompanying LICENSE.TXT file.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * THESE MATERIALS ARE PROVIDED ON AN "AS IS" BASIS. AMAZON SPECIFICALLY
- * DISCLAIMS, WITH RESPECT TO THESE MATERIALS, ALL WARRANTIES, EXPRESS,
- * IMPLIED, OR STATUTORY, INCLUDING THE IMPLIED WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 /**
@@ -15,11 +19,11 @@
  * @brief Reference implementation of a microphone recorder using PortAudio
  */
 
-#ifndef AIA_SAMPLE_PORTAUDIO_MICROPHONE_H_
+#ifndef AIA_PORTAUDIO_MICROPHONE_H_
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define AIA_SAMPLE_PORTAUDIO_MICROPHONE_H_
+#define AIA_PORTAUDIO_MICROPHONE_H_
 
 /* The config header is always included first. */
 #include <aia_config.h>
@@ -77,4 +81,4 @@ bool AiaPortAudioMicrophoneRecorder_StopStreamingMicrophoneData(
 #ifdef __cplusplus
 }
 #endif
-#endif /* ifndef AIA_SAMPLE_PORTAUDIO_MICROPHONE_H_ */
+#endif /* ifndef AIA_PORTAUDIO_MICROPHONE_H_ */

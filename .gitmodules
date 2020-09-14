@@ -1,0 +1,3 @@
+[submodule "external/AIAClientSDK"]
+	path = external/AIAClientSDK
+	url = https://github.com/alexa/AIAClientSDK.git

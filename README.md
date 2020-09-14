@@ -52,8 +52,8 @@ In order to build a complete executable, you will need three components, shown i
     git clone $AIA_PORTING_LAYER_GIT_REPO_URI aia --recurse-submodules
     ```
 
-3. Download **AIA Client SDK** ([SkyhookClientSDK **`0deab3e0`**](https://code.amazon.com/packages/SkyhookClientSDK/trees/mainline)) and put the content under $AFR_SRC_DIR/libraries/freertos_plus/aws/aia/external/AIAClientSDK
-    * If you want to place the AIA Client SDK in another folder, you can specify the path by using **-DAIA_CLIENT_SDK_DIR=YOUR_SDK_PATH** in CMake
+3. The **[AIA Client SDK](https://github.com/alexa/AIAClientSDK)** is downloaded automatically under $AFR_SRC_DIR/libraries/freertos_plus/aws/aia/external/AIAClientSDK
+    * If you have the AIA Client SDK in another folder, you can specify the path by using **-DAIA_CLIENT_SDK_DIR=YOUR_SDK_PATH** in CMake
 4. At the current versions, there are some modifications needed in both the AIA Client SDK and FreeRTOS in order to make them work together. We are working with the SDK team and FreeRTOS team to upstream the needed changes. For now, please apply patches using the commands below.
    * Patch Freertos
 
@@ -84,11 +84,12 @@ In order to build a complete executable, you will need three components, shown i
       * Prepare the requirements for build Windows simulator.
         * **CMake** for Windows
         * **Microsoft Visual Studio** 2019
-        * **LLVM (clang-cl)**: You can get it from Microsoft Visual Studio installer program or from the LLVM [website](https://llvm.org/).
+        * **LLVM (clang-cl)**: You can get it from Microsoft Visual Studio installer program.
       * Follow the [tutorial](https://docs.aws.amazon.com/freertos/latest/userguide/getting_started_windows.html) to build FreeRTOS Windows simulator.
         * Please follow **Building and running the FreeRTOS demo project with CMake** session of the tutorial.
         * Because the AIA Client SDK requires C99 support, select **LLVM (clang-cl)** as the platform toolset for **afr_3rdparty_aia_core** and **afr_aia_demo_utils** projects in Microsoft Visual Studio.
-      * *(Optional)* If you want to build microphone/speaker functionalities for the demo app on Windows simulator:
+        * If you have the problem of `'_serialize': intrinsic function, cannot be defined` when building **afr_defender**, please also select **LLVM (clang-cl)** as the platform toolset for **afr_defender**.
+      * *(Optional)* If you want to `build microphone/speaker audio functionalities` for the demo app on Windows simulator:
         * The demo app on Windows Simulator uses **[PortAudio](http://www.portaudio.com/archives/pa_stable_v190600_20161030.tgz)** and **[Opus](https://github.com/xiph/opus)**. For embedded target platforms, those will be replaced by the Audio Common I/O interface of FreeRTOS.
         * Set a bool value **-DAIA_DEMO_AFR_AUDIO=true** in CMake entry to enable audio
           * Build static libraries for both PortAudio and Opus on your Windows platform
@@ -97,7 +98,7 @@ In order to build a complete executable, you will need three components, shown i
             * **-DLIBOPUS_LIB_PATH**=path_to_opus.lib_that_is_built_by_you
             * **-DPORTAUDIO_INCLUDE_DIR**=path_to_portaudio_include_directory
             * **-DPORTAUDIO_LIB_PATH**=path_to_portaudio.lib_(static)_that_is_built_by_you
-        * If you want to run audio demo cases, please un-comment **#define AIA_DEMO_AUDIO_ENABLE** in $AFR_SRC_DIR/libraries/freertos_plus/aws/aia/demos/aia/aia_sample_app.c
+        * If you want to `run audio demo cases`, please un-comment **#define AIA_DEMO_AUDIO_ENABLE** in $AFR_SRC_DIR/libraries/freertos_plus/aws/aia/demos/aia/aia_sample_app.c
           * At run time, you can talk with Alexa when seeing **Start to talk** on console output.
           * The sample app runs a sequential flow to demonstrate microphone hold-to-talk.
           * The program will wait 2.5 seconds for user to start talking.
@@ -119,4 +120,4 @@ In order to build a complete executable, you will need three components, shown i
         * Integrate an OPUS audio codec your choice.
         * Implement microphone and speaker drivers for your platform.
         * Change the implementation of AIA sample app from PortAudio/Libopus to the one that uses your microphone and speaker drivers.
-      * You can also read the AIA Client SDK [README](https://code.amazon.com/packages/SkyhookClientSDK/blobs/mainline/--/README.md) and [Porting Guide](https://code.amazon.com/packages/SkyhookClientSDK/blobs/mainline/--/PortingGuide.md) for more details.
+      * You can also read the AIA Client SDK [README](https://github.com/alexa/AIAClientSDK/blob/master/README.md) and [Porting Guide](https://github.com/alexa/AIAClientSDK/blob/master/PortingGuide.md) for more details.

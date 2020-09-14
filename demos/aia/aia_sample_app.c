@@ -1,13 +1,17 @@
 /*
- * Copyright 2019-2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
- * You may not use this file except in compliance with the terms and conditions
- * set forth in the accompanying LICENSE.TXT file.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * THESE MATERIALS ARE PROVIDED ON AN "AS IS" BASIS. AMAZON SPECIFICALLY
- * DISCLAIMS, WITH RESPECT TO THESE MATERIALS, ALL WARRANTIES, EXPRESS,
- * IMPLIED, OR STATUTORY, INCLUDING THE IMPLIED WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 /**
@@ -22,6 +26,7 @@
 
 #include <aia_application_config.h>
 #include <aia_capabilities_config.h>
+#include <aiaalertmanager/aia_alert_slot.h>
 #include <aiaclient/aia_client.h>
 #include <aiaconnectionmanager/aia_connection_constants.h>
 #include <aiacore/aia_mbedtls_threading.h>
@@ -36,20 +41,22 @@
 #include <aiaregistrationmanager/aia_registration_manager.h>
 #include <aiauxmanager/aia_ux_state.h>
 
-/* Platform layer includes. */
-#include <inttypes.h>
-#include "event_groups.h"
-#include "platform/iot_clock.h"
-#include "platform/iot_threads.h"
-
 //#define AIA_DEMO_AUDIO_ENABLE
 #ifdef AIA_DEMO_AUDIO_ENABLE
+#include <aiaalerttonesynthesizer/aia_alert_tone.h>
 #include <aiaopusdecoder/aia_opus_decoder.h>
 #include <aiaportaudiomicrophone/aia_portaudio_microphone.h>
 #include <aiaportaudiospeaker/aia_portaudio_speaker.h>
 #endif
 
 #include AiaTaskPool( HEADER )
+#include AiaTimer( HEADER )
+
+/* Platform layer includes. */
+#include <inttypes.h>
+#include "event_groups.h"
+#include "platform/iot_clock.h"
+#include "platform/iot_threads.h"
 
 /** Information for registration */
 #define AIA_REG_HTTPS_AWS_ACCOUNT_ID "012345678901"
@@ -69,6 +76,16 @@ extern char *g_aiaLwaClientId;
 /** Buffer size in samples. */
 #define MIC_BUFFER_SIZE_IN_SAMPLES \
     ( ( size_t )( AMOUNT_OF_AUDIO_DATA_IN_MIC_BUFFER * AIA_MICROPHONE_SAMPLE_RATE_HZ / AIA_MS_PER_SECOND ) )
+
+#ifdef AIA_DEMO_AUDIO_ENABLE
+/**
+ * Sample app pushes speaker data through PortAudio speaker which publishes
+ * @c SAMPLE_RATE samples per second. We calculate here how long it takes in
+ * milliseconds to publish all the samples in a given alert tone frame.
+ */
+#define AIA_ALERT_TONE_FRAME_LENGTH_IN_MS \
+    ( ( AiaDurationMs_t )( ( AIA_ALERT_TONE_FRAME_LENGTH * AIA_MS_PER_SECOND ) / SAMPLE_RATE ) )
+#endif
 
 /** AIA Demo Cases **/
 typedef enum _AIA_DEMO_CASES_E
@@ -150,6 +167,37 @@ static bool onSpeakerFramePushedForPlayback( const void *buf, size_t size, void 
  * AiaPortAudioSpeaker_t.
  */
 static void onSpeakerVolumeChanged( uint8_t newVolume, void *userData );
+
+/**
+ * Callback from the underlying @c AiaSpeakerManager_t to start offline alert
+ * playback.
+ *
+ * @param offlineAlert The offline alert to play the alert tone for.
+ * @param userData Context for this callback.
+ * @return @c true If offline alert playback has successfully started or @c
+ * false otherwise.
+ */
+static bool onStartOfflineAlertTone( const AiaAlertSlot_t* offlineAlert,
+                                     void* userData );
+
+/**
+ * This is a periodic function controlled by the @c offlineAlertPlaybackTimer.
+ * It is responsible for pushing a frame to the speaker for the offline alert
+ * tone every time it is invoked.
+ *
+ * @param userData Context for this function.
+ */
+static void onPlayOfflineAlertTone( void* userData );
+
+/**
+ * Callback from the underlying @c AiaSpeakerManager_t to stop offline alert
+ * playback.
+ *
+ * @param userData Context for this callback.
+ * @return @c true If offline alert playback has been successfully stopped or @c
+ * false otherwise.
+ */
+static bool onStopOfflineAlertTone( void* userData );
 #endif
 
 /**
@@ -202,6 +250,28 @@ struct AiaSampleApp
 
     /** The registration manager used to register the Aia client. */
     AiaRegistrationManager_t *registrationManager;
+    
+    /** Whether to skip publishing events to Aia service */
+    AiaAtomicBool_t shouldPublishEvent;
+
+#ifdef AIA_ENABLE_SPEAKER
+    /** Whether speaker is ready to accept new frames */
+    AiaAtomicBool_t isSpeakerReady;
+
+    /** Whether the offline alert being currently played should be removed
+     * from persistent storage */
+    AiaAtomicBool_t shouldDeleteOfflineAlert;
+
+    /** Timer that controls how often a frame should be pushed to the speaker
+     * while playing an offline alert. */
+    AiaTimer_t offlineAlertPlaybackTimer;
+
+    /** Pointer to the offline alert that is currently being played */
+    AiaAlertSlot_t* offlineAlertInProgress;
+
+    /** Keeps track of the time offline alert playback started at */
+    AiaTimepointSeconds_t offlineAlertPlaybackStartTime;
+#endif
 
 #ifdef AIA_DEMO_AUDIO_ENABLE
     /** Whether microphone is currently being recorded locally. */
@@ -380,6 +450,35 @@ AiaSampleApp_t *AiaSampleApp_Create( AiaMqttConnectionPointer_t mqttConnection, 
     }
 #endif
 
+#ifdef AIA_ENABLE_SPEAKER
+    if( !AiaTimer( Create )( &sampleApp->offlineAlertPlaybackTimer,
+                             onPlayOfflineAlertTone, sampleApp ) )
+    {
+        AiaLogError( "AiaTimer( Create ) failed" );
+#ifdef AIA_DEMO_AUDIO_ENABLE
+        AiaPortAudioSpeaker_Destroy( sampleApp->portAudioSpeaker );
+        AiaOpusDecoder_Destroy( sampleApp->opusDecoder );
+        AiaPortAudioMicrophoneRecorder_Destroy( sampleApp->portAudioMicrophoneRecorder );
+#endif
+        AiaDataStreamWriter_Destroy( sampleApp->microphoneBufferWriter );
+        AiaDataStreamReader_Destroy( sampleApp->microphoneBufferReader );
+        AiaDataStreamBuffer_Destroy( sampleApp->microphoneBuffer );
+        AiaFree( sampleApp->rawMicrophoneBuffer );
+        AiaFree( sampleApp );
+        AiaCryptoMbedtls_Cleanup();
+        AiaRandomMbedtls_Cleanup();
+        AiaMbedtlsThreading_Cleanup();
+        return NULL;
+    }
+#endif
+
+    AiaAtomicBool_Clear( &sampleApp->shouldPublishEvent );
+
+#ifdef AIA_ENABLE_SPEAKER
+    AiaAtomicBool_Set( &sampleApp->isSpeakerReady );
+    AiaAtomicBool_Clear( &sampleApp->shouldDeleteOfflineAlert );
+#endif
+
     g_aiaIotEndpoint = clientcredentialMQTT_BROKER_ENDPOINT;
     g_aiaClientId = clientcredentialIOT_THING_NAME;
     g_aiaAwsAccountId = AIA_REG_HTTPS_AWS_ACCOUNT_ID;
@@ -402,6 +501,21 @@ void AiaSampleApp_Destroy( AiaSampleApp_t *sampleApp )
         AiaLogError( "Null sampleApp" );
         return;
     }
+
+    AiaAtomicBool_Clear( &sampleApp->shouldPublishEvent );
+
+#ifdef AIA_ENABLE_SPEAKER
+    AiaAtomicBool_Clear( &sampleApp->isSpeakerReady );
+    AiaAtomicBool_Clear( &sampleApp->shouldDeleteOfflineAlert );
+
+    AiaTimer( Destroy )( &sampleApp->offlineAlertPlaybackTimer );
+    if( sampleApp->offlineAlertInProgress )
+    {
+        AiaFree( sampleApp->offlineAlertInProgress );
+        sampleApp->offlineAlertInProgress = NULL;
+    }
+#endif
+
 #ifdef AIA_DEMO_AUDIO_ENABLE
     AiaPortAudioSpeaker_Destroy( sampleApp->portAudioSpeaker );
     AiaOpusDecoder_Destroy( sampleApp->opusDecoder );
@@ -497,7 +611,7 @@ static bool initAiaClient( AiaSampleApp_t *sampleApp )
                           onAiaExceptionReceivedSimpleUI, NULL, onAiaCapabilitiesStateChangedSimpleUI, sampleApp
 #ifdef AIA_ENABLE_SPEAKER
                           ,
-                          onSpeakerFramePushedForPlayback, sampleApp, onSpeakerVolumeChanged, sampleApp
+                          onSpeakerFramePushedForPlayback, sampleApp, onSpeakerVolumeChanged, sampleApp, onStartOfflineAlertTone, sampleApp, onStopOfflineAlertTone, sampleApp
 #endif
                           ,
                           onUXStateChangedSimpleUI, NULL
@@ -695,6 +809,7 @@ static void onAiaConnectionSuccessfulSimpleUI( void *userData )
         AiaLogError( "Null sampleApp" );
         return;
     }
+    AiaAtomicBool_Set( &sampleApp->shouldPublishEvent );
     AiaLogInfo( "Aia connection successful" );
 
     sampleApp->isAiaClientConnected = true;
@@ -710,6 +825,7 @@ static void onAiaDisconnectedSimpleUI( void *userData, AiaConnectionOnDisconnect
         AiaLogError( "Null sampleApp" );
         return;
     }
+    AiaAtomicBool_Clear( &sampleApp->shouldPublishEvent );
     AiaLogWarn( "Disconnected from Aia, code=%d", code );
 
     sampleApp->isAiaClientConnected = false;
@@ -720,7 +836,15 @@ static void onAiaDisconnectedSimpleUI( void *userData, AiaConnectionOnDisconnect
 
 static void onAiaConnectionRejectedSimpleUI( void *userData, AiaConnectionOnConnectionRejectionCode_t code )
 {
-    (void)userData;
+    AiaSampleApp_t* sampleApp = (AiaSampleApp_t*)userData;
+    AiaAssert( sampleApp );
+    if( !sampleApp )
+    {
+        AiaLogError( "Null sampleApp" );
+        return;
+    }
+
+    AiaAtomicBool_Clear( &sampleApp->shouldPublishEvent );
     AiaLogInfo( "Aia connection rejected, code=%d", code );
 }
 
@@ -749,6 +873,7 @@ static void onPortAudioSpeakerReadyAgain( void *userData )
         AiaLogError( "Null sampleApp" );
         return;
     }
+    AiaAtomicBool_Set( &sampleApp->isSpeakerReady );
 #ifdef AIA_ENABLE_SPEAKER
     AiaClient_OnSpeakerReady( sampleApp->aiaClient );
 #endif
@@ -795,13 +920,204 @@ static void onSpeakerVolumeChanged( uint8_t newVolume, void *userData )
         AiaLogError( "Null sampleApp" );
         return;
     }
-    AiaLogInfo( "Received volume change, volume=%" PRIu8, newVolume );
+    AiaLogDebug( "Received volume change, volume=%" PRIu8, newVolume );
 #ifdef AIA_DEMO_AUDIO_ENABLE
     if( sampleApp->portAudioSpeaker )
     {
         AiaPortAudioSpeaker_SetNewVolume( sampleApp->portAudioSpeaker, newVolume );
     }
 #endif
+}
+
+static bool onStopOfflineAlertTone( void* userData )
+{
+    AiaSampleApp_t* sampleApp = (AiaSampleApp_t*)userData;
+    AiaAssert( sampleApp );
+    if( !sampleApp )
+    {
+        AiaLogError( "Null sampleApp" );
+        return false;
+    }
+
+    /* Destroy offline alert playback timer */
+    AiaTimer( Destroy )( &sampleApp->offlineAlertPlaybackTimer );
+    if( !AiaTimer( Create )( &sampleApp->offlineAlertPlaybackTimer,
+                             onPlayOfflineAlertTone, sampleApp ) )
+    {
+        AiaLogError( "AiaTimer( Create ) failed" );
+        return false;
+    }
+
+    /* Clear offline alert in progress, clear conditional flags */
+    if( sampleApp->offlineAlertInProgress )
+    {
+        AiaFree( sampleApp->offlineAlertInProgress );
+        sampleApp->offlineAlertInProgress = NULL;
+    }
+    sampleApp->offlineAlertPlaybackStartTime = 0;
+    AiaAtomicBool_Clear( &sampleApp->shouldDeleteOfflineAlert );
+
+    return true;
+}
+
+static bool onStartOfflineAlertTone( const AiaAlertSlot_t* offlineAlert,
+                                     void* userData )
+{
+    AiaSampleApp_t* sampleApp = (AiaSampleApp_t*)userData;
+    AiaAssert( sampleApp );
+    if( !sampleApp )
+    {
+        AiaLogError( "Null sampleApp" );
+        return false;
+    }
+    if( !offlineAlert )
+    {
+        AiaLogError( "Null offlineAlert" );
+        return false;
+    }
+
+    /* Set the offline alert to play, initialize conditional variables */
+    sampleApp->offlineAlertInProgress =
+        AiaCalloc( 1, sizeof( AiaAlertSlot_t ) );
+    if( !sampleApp->offlineAlertInProgress )
+    {
+        AiaLogError( "AiaCalloc failed, bytes=%zu.", sizeof( AiaAlertSlot_t ) );
+        return false;
+    }
+    *sampleApp->offlineAlertInProgress = *offlineAlert;
+
+    /* Set the time we started offline alert playback */
+    sampleApp->offlineAlertPlaybackStartTime = AiaClock_GetTimeSinceNTPEpoch();
+
+    AiaLogDebug( "Playing offline alert tone for %s",
+                 AiaAlertType_ToString( offlineAlert->alertType ) );
+
+    /* Arm the offline alert playback timer to go off every @c
+     * AIA_SPEAKER_FRAME_PUSH_CADENCE_MS milliseconds */
+    if( !AiaTimer( Arm )( &sampleApp->offlineAlertPlaybackTimer, 0,
+                          AIA_SPEAKER_FRAME_PUSH_CADENCE_MS ) )
+    {
+        AiaLogError( "AiaTimer( Arm ) failed" );
+        if( sampleApp->offlineAlertInProgress )
+        {
+            AiaFree( sampleApp->offlineAlertInProgress );
+            sampleApp->offlineAlertInProgress = NULL;
+        }
+        sampleApp->offlineAlertPlaybackStartTime = 0;
+        AiaTimer( Destroy )( &sampleApp->offlineAlertPlaybackTimer );
+        return false;
+    }
+
+    AiaLogInfo( "Started offline alert playback timer" );
+
+    return true;
+}
+
+static void onPlayOfflineAlertTone( void* userData )
+{
+    AiaSampleApp_t* sampleApp = (AiaSampleApp_t*)userData;
+    AiaAssert( sampleApp );
+    if( !sampleApp )
+    {
+        AiaLogError( "Null sampleApp" );
+        return;
+    }
+
+    /* Quit early if speaker is not ready or if offline alert playback is
+     * disabled */
+    if( !AiaAtomicBool_Load( &sampleApp->isSpeakerReady ) )
+    {
+        return;
+    }
+
+    /* Pointer to the offline alert that should be played */
+    AiaAlertSlot_t* offlineAlert = sampleApp->offlineAlertInProgress;
+
+    /* Check if this alert exceeded its duration */
+    AiaTimepointSeconds_t now = AiaClock_GetTimeSinceNTPEpoch();
+    if( now >= offlineAlert->scheduledTime )
+    {
+        AiaDurationSeconds_t timeSinceAlertStart =
+            now - offlineAlert->scheduledTime;
+        if( timeSinceAlertStart * AIA_MS_PER_SECOND > offlineAlert->duration )
+        {
+            AiaLogDebug( "Offline alert expired, deleting it" );
+            AiaAtomicBool_Set( &sampleApp->shouldDeleteOfflineAlert );
+        }
+    }
+
+    /* Invoke the callback to delete the alert from local storage if it is
+     * supposed to be deleted */
+    if( AiaAtomicBool_Load( &sampleApp->shouldDeleteOfflineAlert ) )
+    {
+        if( !AiaClient_DeleteAlert( sampleApp->aiaClient,
+                                    offlineAlert->alertToken ) )
+        {
+            AiaLogWarn( "Failed to delete offline alert" );
+        }
+
+        AiaTimer( Destroy )( &sampleApp->offlineAlertPlaybackTimer );
+        if( !AiaTimer( Create )( &sampleApp->offlineAlertPlaybackTimer,
+                                 onPlayOfflineAlertTone, sampleApp ) )
+        {
+            AiaLogError( "AiaTimer( Create ) failed" );
+        }
+
+        if( sampleApp->offlineAlertInProgress )
+        {
+            AiaFree( sampleApp->offlineAlertInProgress );
+            sampleApp->offlineAlertInProgress = NULL;
+        }
+        sampleApp->offlineAlertPlaybackStartTime = 0;
+        AiaAtomicBool_Clear( &sampleApp->shouldDeleteOfflineAlert );
+
+        return;
+    }
+
+    /* Variables needed to play the offline alert tone */
+    size_t numFrames = 0;
+    size_t frameLength = 0;
+
+    /* Check for correct alert type */
+    switch( offlineAlert->alertType )
+    {
+        case AIA_ALERT_TYPE_ALARM:
+        case AIA_ALERT_TYPE_REMINDER:
+        case AIA_ALERT_TYPE_TIMER:
+#ifdef AIA_DEMO_AUDIO_ENABLE
+            numFrames = AIA_SPEAKER_FRAME_PUSH_CADENCE_MS /
+                        AIA_ALERT_TONE_FRAME_LENGTH_IN_MS;
+            /* Make sure we are pushing at least one frame */
+            numFrames = numFrames > 0 ? numFrames : 1;
+            frameLength = AIA_ALERT_TONE_FRAME_LENGTH;
+#endif
+            break;
+        default:
+            AiaLogError( "Unknown alert type:%" PRIu32,
+                         offlineAlert->alertType );
+            if( sampleApp->offlineAlertInProgress )
+            {
+                AiaFree( sampleApp->offlineAlertInProgress );
+                sampleApp->offlineAlertInProgress = NULL;
+            }
+            sampleApp->offlineAlertPlaybackStartTime = 0;
+            return;
+    }
+
+    for( size_t i = 0; i < numFrames; ++i )
+    {
+#ifdef AIA_DEMO_AUDIO_ENABLE
+        if( !AiaPortAudioSpeaker_PlaySpeakerData(
+                sampleApp->portAudioSpeaker, AIA_ALERT_TONE, frameLength ) )
+        {
+            AiaLogDebug( "Failed to play offline alert buffer" );
+            AiaAtomicBool_Clear( &sampleApp->isSpeakerReady );
+            return;
+        }
+#endif
+    }
+
+    return;
 }
 #endif
 

@@ -35,7 +35,6 @@ include(${AIA_CLIENT_SDK_DIR}/cmake/Logging.cmake)
 # Build for Amazon FreeRTOS
 set(aia_core_dir "${AIA_CLIENT_SDK_DIR}/AiaCore")
 set(aia_util_dir "${AIA_CLIENT_SDK_DIR}/ApplicationUtilities")
-set(aia_ports_dir "${AIA_CLIENT_SDK_DIR}/ports")
 
 set(aia_afr_dir "${PROJECT_SOURCE_DIR}")
 set(aia_afr_ports_dir "${aia_afr_dir}/ports")
@@ -178,6 +177,7 @@ if ("${AIA_DEMO_AFR_AUDIO}")
     afr_module_include_dirs(
         ${AFR_CURRENT_MODULE}
         PUBLIC
+            "${aia_util_dir}/aiaalerttonesynthesizer/include"
             "${aia_util_dir}/aiaopusdecoder/include"
             "${aia_util_dir}/aiaportaudiospeaker/include"
             "${aia_afr_util_dir}/aiaportaudiomicrophone/include"

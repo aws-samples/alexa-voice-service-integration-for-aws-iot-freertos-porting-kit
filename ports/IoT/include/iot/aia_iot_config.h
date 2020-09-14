@@ -1,13 +1,17 @@
 /*
- * Copyright 2019-2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
- * You may not use this file except in compliance with the terms and conditions
- * set forth in the accompanying LICENSE.TXT file.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * THESE MATERIALS ARE PROVIDED ON AN "AS IS" BASIS. AMAZON SPECIFICALLY
- * DISCLAIMS, WITH RESPECT TO THESE MATERIALS, ALL WARRANTIES, EXPRESS,
- * IMPLIED, OR STATUTORY, INCLUDING THE IMPLIED WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 #ifndef AIA_IOT_CONFIG_H_
@@ -49,9 +53,6 @@ extern "C" {
 #define IOT_LOG_LEVEL_AIA IOT_LOG_INFO
 #define AiaLog( Level, ... ) \
     IotLog_Generic( IOT_LOG_LEVEL_AIA, "AIA", Level, NULL, __VA_ARGS__ )
-//#define AiaLog( Level, ... ) \
-//    IotLog_Generic( IOT_LOG_LEVEL_AIA, "AIA", Level, NULL, "[0] " __FILE__ ":" AIA_TOSTRING( __LINE__ ) ); \
-//    IotLog_Generic( IOT_LOG_LEVEL_AIA, "AIA", Level, NULL, "[1] " __VA_ARGS__ )
 #define AiaLogDebug( ... ) AiaLog( IOT_LOG_DEBUG, __VA_ARGS__ )
 #define AiaLogError( ... ) AiaLog( IOT_LOG_ERROR, __VA_ARGS__ )
 #define AiaLogInfo( ... ) AiaLog( IOT_LOG_INFO, __VA_ARGS__ )
@@ -296,8 +297,6 @@ static inline AiaAtomicBool_t AiaAtomicBool_Load( AiaAtomicBool_t* operand )
 
 /** Macros and typedefs for timers. */
 /** @{ */
-//#define AiaTimerConcat( MEMBER ) AiaClock( Timer##MEMBER )
-//#define AiaTimer( MEMBER ) AiaTimerConcat( MEMBER )
 /** IotClock_ARM minimal starting interval **/
 #define AIA_CLOCK_ARM_MS_MIN    10
 #define AIA_CLOCK_ARM_START_MIN(_start_ms) (AIA_CLOCK_ARM_MS_MIN > _start_ms ? AIA_CLOCK_ARM_MS_MIN : _start_ms)

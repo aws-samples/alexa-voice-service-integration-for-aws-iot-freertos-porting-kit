@@ -1,13 +1,17 @@
 /*
- * Copyright 2019-2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
- * You may not use this file except in compliance with the terms and conditions
- * set forth in the accompanying LICENSE.TXT file.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * THESE MATERIALS ARE PROVIDED ON AN "AS IS" BASIS. AMAZON SPECIFICALLY
- * DISCLAIMS, WITH RESPECT TO THESE MATERIALS, ALL WARRANTIES, EXPRESS,
- * IMPLIED, OR STATUTORY, INCLUDING THE IMPLIED WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 /**
@@ -23,6 +27,7 @@
 /* AIA Capabilities Config */
 #include <aia_capabilities_config.h>
 
+#include <aiaalertmanager/aia_alert_slot.h>
 #include <aiaconnectionmanager/aia_connection_constants.h>
 #include <aiacore/capabilities_sender/aia_capabilities_sender_state.h>
 #include <aiacore/data_stream_buffer/aia_data_stream_buffer.h>
@@ -158,6 +163,34 @@ typedef bool ( *AiaPlaySpeakerData_t )( const void* buf, size_t size,
  * to account for human sound level perception of loudness (i.e. decibel).
  */
 typedef void ( *AiaSetVolume_t )( uint8_t volume, void* userData );
+
+/**
+ * Callback that starts the offline alert playback routine. Implementations are
+ * expected to be non-blocking and are not required to be thread-safe.
+ *
+ * @param offlineAlert The offline alert to synthesize an alert tone for.
+ * @param userData User data associated with this callback.
+ * @return @c true If offline alert playback has successfully started or @c
+ * false otherwise.
+ * @note Only one offline alert at a time will be played with this callback. If
+ * there is already an offline alert being played, subsequent calls to this
+ * callback will be no-ops.
+ * @note @c offlineAlert will not be valid after the lifecycle of this callback,
+ * any data needed in it should be copied out.
+ */
+typedef bool ( *AiaOfflineAlertPlayback_t )( const AiaAlertSlot_t* offlineAlert,
+                                             void* userData );
+
+/**
+ * Callback that disables offline alert playback. Implementations are expected
+ * to be non-blocking and are not required to be thread-safe.
+ *
+ * @param userData User data associated with this callback.
+ *
+ * @return @c true If offline alert playback has been disabled successfully or
+ * @c false otherwise.
+ */
+typedef bool ( *AiaOfflineAlertStop_t )( void* userData );
 
 /**
  * This is the shared buffer from which the SDK will consume microphone data
