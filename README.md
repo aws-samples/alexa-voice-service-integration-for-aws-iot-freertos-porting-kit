@@ -28,7 +28,7 @@ In order to build a complete executable, you will need three components, shown i
    * Define a unique ID as your device serial number, use it in place of the *YOUR_DSN*
 
         ```sh
-        curl -k -d'response_type=device_code&client_id=AVS_CLIENT_ID&scope=alexa%3Aall&scope_data=%7B%22alexa%3Aall%22%3A%7B%22productID%22%3A%22AVS_PRODUCT_ID%22%22productInstanceAttributes%22%3A%7B%22deviceSerialNumber%22%3A%22YOUR_DSN%22%7D%7D%7D'-H"Content-Type: application/x-www-form-urlencoded"-X POST https://api.amazon.com/auth/O2/create/codepair
+        curl -k -d'response_type=device_code&client_id=AVS_CLIENT_ID&scope=alexa%3Aall&scope_data=%7B%22alexa%3Aall%22%3A%7B%22productID%22%3A%22AVS_PRODUCT_ID%22,%22productInstanceAttributes%22%3A%7B%22deviceSerialNumber%22%3A%22YOUR_DSN%22%7D%7D%7D'-H"Content-Type: application/x-www-form-urlencoded" -X POST https://api.amazon.com/auth/O2/create/codepair
         ```
 
    * You will get **USER_CODE** and **DEVICE_CODE** from the response.
